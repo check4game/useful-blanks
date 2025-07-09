@@ -38,11 +38,6 @@ namespace MZ
             WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &str[0], size_needed, nullptr, nullptr);
 
             return str;
-
-
-            //std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
-
-            //return converter.to_bytes(GetLastError());
         }
 
         std::wstring GetLastError()
@@ -171,9 +166,11 @@ namespace MZ
             }
         }
 
-        bool Open(const wchar_t* path, bool bWrite = true, bool NoBuffering = true)
+        bool Open(const wchar_t* path, bool bWrite = true, bool NoBuffering = true, bool DeleteOnClose = false)
         {
             DWORD flags = (NoBuffering) ? FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN : 0;
+
+            flags |= (DeleteOnClose) ? FILE_FLAG_DELETE_ON_CLOSE : 0;
 
             if (!bWrite)
                 return OpenExist(path, GENERIC_READ, FILE_SHARE_READ, flags);
@@ -181,9 +178,13 @@ namespace MZ
                 return OpenExist(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, flags);
         }
 
-        bool Create(const wchar_t* path, bool NoBuffering = true)
+        bool Create(const wchar_t* path, bool NoBuffering = true, bool DeleteOnClose = false)
         {
-            return Create(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, (NoBuffering) ? FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN : 0);
+            DWORD flags = (NoBuffering) ? FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN : 0;
+
+            flags |= (DeleteOnClose) ? FILE_FLAG_DELETE_ON_CLOSE : 0;
+
+            return Create(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, flags);
         }
 
         void Write(const byte* buffer, size_t nNumberOfBytesToWrite, uint32_t blockSize = 128u * 1024)
