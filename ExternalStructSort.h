@@ -67,6 +67,13 @@ namespace MZ
                 std::wcerr << path << ", " << file.GetLastError() << std::endl; std::abort();
             }
 
+            auto ret = Sort(file, recordAction, memoryLimit);
+
+            file.Close();
+        }
+
+        static size_t Sort(MZ::CFile& file, std::function<void(const TRecord& record)> recordAction, size_t memoryLimit = 128 * 1024 * 1024)
+        {
             size_t fileSize = file.Size(), numRecords = fileSize / sizeof(TRecord);
 
             size_t chunkSize = numRecords, numChunks = 1;
@@ -99,6 +106,8 @@ namespace MZ
 
                 const auto dataSize = static_cast<uint32_t>(sortRecords.size() * sizeof(TRecord));
 
+                assert(file.SeekBegin(0) == 0);
+
                 assert(file.Read(reinterpret_cast<byte*>(sortRecords.data()), dataSize) == dataSize);
 
                 concurrency::parallel_sort(sortRecords.begin(), sortRecords.end(), [](const TRecord& a, const TRecord& b)
@@ -112,7 +121,7 @@ namespace MZ
                     recordAction(record);
                 }
 
-                file.Close(); return numChunks;
+                return numChunks;
             }
             else
             {
@@ -213,8 +222,6 @@ namespace MZ
 
                 iMin--; recordAction(buffers[iMin][chunkInfo[iMin].begin++]);
             }
-
-            file.Close();
 
             return numChunks;
         }
