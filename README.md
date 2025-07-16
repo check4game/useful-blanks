@@ -44,3 +44,16 @@ cdc.Cut(
     }
 );
 ```
+
+```
+ MZ::FileEnumerator::Enumerate(L"\\\\?\\", L"c:\\Windows\\",
+     [&](const std::wstring& path, const wchar_t* name, int64_t mt, int64_t size)
+     {
+         std::wcout << (path + name) << L',' << mt << std::endl;
+     },
+     [&](const std::wstring& path, const std::wstring& error)
+     {
+         std::wcout << path << L", " << error << std::endl;
+     }
+     );
+```
