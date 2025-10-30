@@ -1,9 +1,10 @@
 #pragma once
 
 #include <functional>
+#include <queue>
+#include <execution>
 
-#include <ppl.h>
-#include "CFile.h"
+#include "FileSystem.h"
 
 #ifdef max
 #undef max
@@ -11,7 +12,7 @@
 
 namespace MZ
 {
-    size_t find_aligment_for_4096(uint32_t x)
+    constexpr size_t find_aligment_for_4096(uint32_t x)
     {
         uint32_t val = x, power_of_two_in_x = 0;
 
@@ -20,233 +21,239 @@ namespace MZ
             val >>= 1; power_of_two_in_x++;
         }
 
-        // 2^12=4096
         return ((1ull << (std::max(12u, power_of_two_in_x))) * (x >> power_of_two_in_x)) / x;
     }
 
-    size_t find_optimal_chunk_size_aligned(size_t size, size_t max_chunk_size, size_t alignment)
-    {
-        size_t chunk_size = max_chunk_size / alignment * alignment;
-
-        while (chunk_size >= alignment) 
-        {
-            size_t num_chunks = (size + chunk_size - 1) / chunk_size;
-
-            size_t last_chunk_size = size - (num_chunks - 1) * chunk_size;
-
-            if (last_chunk_size >= static_cast<size_t>(chunk_size * 0.90)) 
-            {
-                return chunk_size;
-            }
-
-            chunk_size -= alignment;
-        }
-
-        return alignment;
-    }
-
-    template <typename TRecord, auto Key>
+    template <typename TRecord>
     class ExternalStructSort
     {
-        using key_type = std::remove_reference_t<decltype(std::declval<TRecord>().*Key)>;
-
-        static_assert(std::is_arithmetic_v<key_type>, "non arithmetic");
-
-        static_assert(alignof(TRecord) == 1, "alignof(TRerord) != 1");
+        static_assert(alignof(TRecord) == 1, "alignof(TRecord) != 1");
 
         static_assert(sizeof(TRecord) % 2 == 0, "sizeof(TRecord) % 2 != 0");
 
+        size_t _memoryLimit, _chunkSize, _numChunks, _preloadSize;
+
+        const size_t _minChunkSize = find_aligment_for_4096(sizeof(TRecord));
+
+        std::function<bool(const TRecord& a, const TRecord& b)> _a_is_less_than_b = nullptr;
+
+        constexpr size_t find_optimal_chunk_size(size_t raw_data_size, size_t max_chunk_size, size_t alignment) const
+        {
+            size_t chunk_size = max_chunk_size / alignment * alignment;
+
+            while (chunk_size >= alignment)
+            {
+                size_t num_chunks = (raw_data_size + chunk_size - 1) / chunk_size;
+
+                size_t last_chunk_size = raw_data_size - (num_chunks - 1) * chunk_size;
+
+                if (last_chunk_size >= static_cast<size_t>(chunk_size * 0.90))
+                {
+                    return chunk_size;
+                }
+
+                chunk_size -= alignment;
+            }
+
+            return alignment;
+        }
+
+        struct ChunkInfo
+        {
+            uint32_t begin = 0;
+            uint32_t end = 0;
+            uint32_t offset = 0;
+            uint32_t raw_data_size = 0;
+
+            std::vector<TRecord> records;
+        };
+
+        std::vector<ChunkInfo> _chunkInfo;
+
     public:
 
-        static size_t Sort(std::wstring path, std::function<void(const TRecord& record)> recordAction, size_t memoryLimit = 128 * 1024 * 1024)
+        ExternalStructSort(size_t fileSize, const std::function<bool(const TRecord& a, const TRecord& b)>& a_is_less_than_b, size_t memoryLimit = 256 * 1024 * 1024)
         {
-            MZ::CFile file;
+            assert(memoryLimit >= 128 * 1024 * 1024);
+            
+            _memoryLimit = memoryLimit;
 
-            if (!file.Open(path.c_str()))
+            _a_is_less_than_b = a_is_less_than_b;
+
+            size_t numRecords = fileSize / sizeof(TRecord);
+
+            assert(numRecords >= _minChunkSize && (numRecords % _minChunkSize) == 0);
+
+            _chunkSize = numRecords; _numChunks = 1; _preloadSize = _minChunkSize;
+
+            if (fileSize > _memoryLimit)
             {
-                std::wcerr << path << ", " << file.GetLastError() << std::endl; std::abort();
+                const auto limit = _memoryLimit / 1024 / sizeof(TRecord);
+
+                if (_preloadSize < limit)
+                {
+                    _preloadSize = (limit / _minChunkSize) * _minChunkSize;
+                }
+
+                _chunkSize = find_optimal_chunk_size(numRecords, _memoryLimit / sizeof(TRecord), _minChunkSize);
+
+                if ((numRecords % _chunkSize) != 0)
+                {
+                    _numChunks = numRecords / _chunkSize + 1;
+                }
+                else
+                {
+                    _numChunks = numRecords / _chunkSize;
+                }
             }
 
-            auto ret = Sort(file, recordAction, memoryLimit);
+            assert((_chunkSize % _minChunkSize) == 0);
 
-            file.Close();
+            assert(((numRecords % _chunkSize) % _minChunkSize) == 0);
+
+            _chunkInfo.resize(_numChunks);
+
+            for (size_t i = 0; i < _numChunks; i++)
+            {
+                auto& ci = _chunkInfo[i];
+
+                ci.raw_data_size = static_cast<uint32_t>(_chunkSize);
+
+                if ((i + 1) == _numChunks && (numRecords % _chunkSize) != 0)
+                {
+                    ci.raw_data_size = static_cast<uint32_t>(numRecords % _chunkSize);
+                }
+            }
         }
 
-        static size_t Sort(MZ::CFile& file, std::function<void(const TRecord& record)> recordAction, size_t memoryLimit = 128 * 1024 * 1024)
+        void ChunkSort(File& file, const std::function<void(TRecord& record)>& preSortAction = nullptr, const std::function<void(TRecord& record)>& afterSortAction = nullptr)
         {
-            size_t fileSize = file.Size(), numRecords = fileSize / sizeof(TRecord);
+            size_t numRecords = 0;
 
-            size_t chunkSize = numRecords, numChunks = 1;
+            for (const auto& ci : _chunkInfo) numRecords += ci.raw_data_size;
+            
+            assert(file.Size() / sizeof(TRecord) == numRecords);
 
-            auto aligment = find_aligment_for_4096(sizeof(TRecord));
+            std::vector<TRecord> records(_chunkSize);
 
-            assert((numRecords % aligment) == 0);
+            std::vector<uint32_t> indices;
 
-            assert((fileSize % sizeof(TRecord)) == 0 && chunkSize != 0);
+            std::vector<TRecord> writeRecords;
 
-            if (fileSize > memoryLimit)
+            file.SeekBegin(0);
+
+            for (size_t iChunk = 0; iChunk < _numChunks; iChunk++)
             {
-                while ((aligment * sizeof(TRecord) * 2) < (128ull * 1024))
+                records.resize(file.Read(records));
+
+                assert(records.size() != 0);
+
+                assert((records.size() % _minChunkSize) == 0);
+
+                if (preSortAction)
                 {
-                    aligment *= 2;
+                    for (auto& record : records)
+                    {
+                        preSortAction(record);
+                    }
                 }
 
-                chunkSize = find_optimal_chunk_size_aligned(numRecords, memoryLimit / sizeof(TRecord), aligment);
+                indices.resize(records.size()); std::iota(indices.begin(), indices.end(), 0);
 
-                numChunks = numRecords / chunkSize;
-
-                if ((numRecords % chunkSize) != 0) numChunks++;
-            }
-
-            assert((chunkSize % aligment) == 0);
-
-            if (numChunks == 1)
-            {
-                std::vector<TRecord> sortRecords(chunkSize);
-
-                const auto dataSize = static_cast<uint32_t>(sortRecords.size() * sizeof(TRecord));
-
-                assert(file.SeekBegin(0) == 0);
-
-                assert(file.Read(reinterpret_cast<byte*>(sortRecords.data()), dataSize) == dataSize);
-
-                concurrency::parallel_sort(sortRecords.begin(), sortRecords.end(), [](const TRecord& a, const TRecord& b)
+                std::sort(std::execution::par, indices.begin(), indices.end(),
+                    [&](const uint32_t a, const uint32_t b)
                     {
-                        return a.*Key < b.*Key;
-                    });
-
-
-                for (const auto& record : sortRecords)
-                {
-                    recordAction(record);
-                }
-
-                return numChunks;
-            }
-            else
-            {
-                std::vector<TRecord> sortRecords(chunkSize);
-
-                ChunkSort(sortRecords,
-
-                    [&](byte* data, uint32_t size) -> uint32_t
-                    {
-                        return file.Read(data, size);
-                    },
-                    [&](const byte* data, uint32_t size)
-                    {
-                        file.SeekBack(size); file.Write(data, size);
+                        return _a_is_less_than_b(records[a], records[b]);
                     }
                 );
-            }
 
-            struct ChunkInfoStruct
-            {
-                size_t begin;
-                size_t end;
-                size_t offset;
-                size_t size;
-            };
-
-            std::vector<ChunkInfoStruct> chunkInfo(numChunks);
-
-            for (size_t i = 0; i < numChunks; i++)
-            {
-                auto& ci = chunkInfo[i];
-
-                ci.begin = 0; ci.end = ci.offset = aligment; ci.size = chunkSize;
-
-                if (numRecords < chunkSize)
+                if (afterSortAction) // только сортировка без записи в файл
                 {
-                    ci.size = numRecords; 
-                    
-                    if (numRecords < aligment) ci.end = numRecords;
-                    
-                    numRecords = 0; break;
-                }
-
-                numRecords -= chunkSize;
-            }
-
-            assert(numRecords == 0);
-
-            std::vector<std::vector<TRecord>> buffers(numChunks);
-
-            // preload data
-            for (size_t i = 0; i < numChunks; i++)
-            {
-                auto& buffer = buffers[i];
-
-                buffer.resize(aligment);
-
-                file.SeekBegin(i * chunkSize * sizeof(TRecord));
-
-                file.Read(reinterpret_cast<byte*>(buffer.data()), buffer.size() * sizeof(TRecord));
-            }
-
-            key_type keyMinValue;
-
-            while (true)
-            {
-                size_t iMin = 0;
-
-                for (size_t i = 0; i < numChunks; i++)
-                {
-                    auto& ci = chunkInfo[i];
-
-                    auto& buffer = buffers[i];
-
-                    if (ci.begin == ci.end && ci.offset < ci.size)
+                    for (const auto value : indices)
                     {
-                        file.SeekBegin((i * chunkSize + ci.offset) * sizeof(TRecord));
-
-                        file.Read(reinterpret_cast<byte*>(buffer.data()), buffer.size() * sizeof(TRecord));
-                        
-                        if ((ci.size - ci.offset) < aligment) ci.end = (ci.size - ci.offset);
-                        
-                        ci.begin = 0; ci.offset += ci.end;
-                    }
-
-                    if (ci.begin != ci.end)
-                    {
-                        const auto keyValue = buffer[ci.begin].*Key;
-
-                        if (iMin ==  0 || keyValue < keyMinValue)
-                        {
-                            keyMinValue = keyValue; iMin = i + 1;
-                        }
+                        afterSortAction(records[value]);
                     }
                 }
+                else if (preSortAction || !std::is_sorted(indices.begin(), indices.end()))
+                {
+                    file.SeekBack(records);
 
-                if (iMin == 0) break;
+                    for (const auto value : indices)
+                    {
+                        writeRecords.push_back(records[value]);
 
-                iMin--; recordAction(buffers[iMin][chunkInfo[iMin].begin++]);
+                        if (writeRecords.size() != _preloadSize) continue;
+
+                        file.Write(writeRecords); writeRecords.clear();
+                    }
+
+                    if (writeRecords.size())
+                    {
+                        assert((writeRecords.size() % _minChunkSize) == 0);
+
+                        file.Write(writeRecords); writeRecords.clear();
+                    }
+                }
             }
-
-            return numChunks;
         }
 
-
-    private:
-
-        static void ChunkSort(std::vector<TRecord>& sortRecords, std::function<uint32_t(byte* data, uint32_t size)> getAction, std::function<void(const byte* data, uint32_t)> readyAction)
+        void Sort(File& file, const std::function<void(const TRecord& record)>& recordAction)
         {
-            auto begin = reinterpret_cast<byte*>(sortRecords.data());
+            size_t numRecords = 0;
 
-            const auto dataSize = static_cast<uint32_t>(sortRecords.size() * sizeof(TRecord));
-
-            auto readlDataSize = getAction(begin, dataSize);
-
-            while (readlDataSize)
+            for (auto& ci : _chunkInfo)
             {
-                concurrency::parallel_sort(sortRecords.begin(), sortRecords.begin() + readlDataSize / sizeof(TRecord), [](const TRecord& a, const TRecord& b)
+                ci.begin = ci.end = ci.offset = 0; numRecords += ci.raw_data_size;
+            }
+
+            assert(file.Size() / sizeof(TRecord) == numRecords);
+
+            auto queue_compare_records = [&](const size_t a, const size_t b)
+            {
+                    // invert for queue.top
+                    const auto& aa = _chunkInfo[b];
+                    const auto& bb = _chunkInfo[a];
+
+                    return _a_is_less_than_b(aa.records[aa.begin], bb.records[bb.begin]);
+            };
+
+            std::priority_queue<size_t, std::vector<size_t>, decltype(queue_compare_records)> queue(queue_compare_records);
+
+            auto preload_records = [&](ChunkInfo& ci, size_t i)
+            {
+                if (ci.begin == ci.end && ci.offset < ci.raw_data_size)
+                {
+                    if ((ci.offset + _preloadSize) < ci.raw_data_size)
                     {
-                        return a.*Key < b.*Key;
-                    });
+                        ci.records.resize(_preloadSize);
+                    }
+                    else
+                    {
+                        ci.records.resize(ci.raw_data_size - ci.offset);
+                    }
 
-                readyAction(begin, readlDataSize);
+                    ci.end = static_cast<size_t>(file.Read(static_cast<uint32_t>(i * _chunkSize + ci.offset), ci.records));
 
-                readlDataSize = getAction(begin, dataSize);
+                    assert(ci.end != 0);
+
+                    ci.begin = 0; ci.offset += ci.end;
+                }
+            };
+
+            for (size_t i = 0; i < _numChunks; i++)
+            {
+                preload_records(_chunkInfo[i], i); queue.push(i);
+            }
+
+            while (queue.size())
+            {
+                const auto i = queue.top(); queue.pop();
+
+                auto& ci = _chunkInfo[i];
+
+                recordAction(ci.records[ci.begin++]); preload_records(ci, i);
+
+                if (ci.begin != ci.end) queue.push(i);
             }
         }
     };
