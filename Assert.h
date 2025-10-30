@@ -1,9 +1,5 @@
 #pragma once
 
-#if defined(assert)
-#undef assert
-#endif
-
 #include <thread>
 #include <io.h>
 
