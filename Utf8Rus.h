@@ -239,6 +239,11 @@ public:
 		template<typename T>
 		static size_t Size(const T* str)
 		{
+			static_assert(
+				std::is_same_v<T, char> || std::is_same_v<T, wchar_t>,
+				"Template parameter must be either char or wchar_t"
+				);
+
 			mz_assert(str != nullptr);
 
 			size_t size = 0;
