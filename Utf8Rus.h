@@ -94,7 +94,7 @@ namespace MZ
 		{
 			std::string result(SizeA(wStr, table), '\0');
 
-			auto aStr = const_cast<char*>(result.c_str());
+			auto aStr = result.begin();
 
 			for (/*wStr*/; *wStr; wStr++)
 			{
@@ -131,7 +131,7 @@ namespace MZ
 		{
 			size_t size = 0; mz_assert(aStr != nullptr);
 
-			const uint8_t* bStr = reinterpret_cast<const uint8_t*>(aStr);
+			auto bStr = reinterpret_cast<const uint8_t*>(aStr);
 
 			for (/*bStr*/; *bStr; bStr++)
 			{
@@ -164,9 +164,9 @@ namespace MZ
 		{
 			std::wstring result(SizeW(str, table), L'\0'); // через SizeW мы проверили валидность строки
 
-			auto r = const_cast<wchar_t*>(result.c_str());
+			auto r = result.begin();
 
-			const uint8_t* aStr = reinterpret_cast<const uint8_t*>(str);
+			auto aStr = reinterpret_cast<const uint8_t*>(str);
 
 			for (/*aStr*/; *aStr; aStr++)
 			{
