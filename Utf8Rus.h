@@ -143,7 +143,7 @@ namespace MZ
 					{
 						if (0x90 == (*bStr & 0x90)) // последовательность два байта
 						{
-							mz_assert(0 != (bStr[1] & 0x80)); aStr++;
+							mz_assert(0 != (bStr[1] & 0x80)); bStr++;
 						}
 						else if (*bStr & 0x80) // последовательность три байта
 						{
@@ -160,36 +160,36 @@ namespace MZ
 			return size;
 		}
 
-		static std::wstring StringW(const char* str, const ToUnicodeTableType& table)
+		static std::wstring StringW(const char* aStr, const ToUnicodeTableType& table)
 		{
-			std::wstring result(SizeW(str, table), L'\0'); // через SizeW мы проверили валидность строки
+			std::wstring result(SizeW(aStr, table), L'\0'); // через SizeW мы проверили валидность строки
 
 			auto r = result.begin();
 
-			auto aStr = reinterpret_cast<const uint8_t*>(str);
+			auto bStr = reinterpret_cast<const uint8_t*>(aStr);
 
-			for (/*aStr*/; *aStr; aStr++)
+			for (/*bStr*/; *bStr; bStr++)
 			{
-				if (*aStr >= 0x80)
+				if (*bStr >= 0x80)
 				{
-					if (0x00 == (*r = table[*aStr]))
+					if (0x00 == (*r = table[*bStr]))
 					{
-						if (0x90 == (*aStr & 0x90)) // последовательность два байта
+						if (0x90 == (*bStr & 0x90)) // последовательность два байта
 						{
-							*r++ = (static_cast<wchar_t>(aStr[1] & 0x7F) << 4) | (*aStr & 0x0F); aStr++;
+							*r++ = (static_cast<wchar_t>(bStr[1] & 0x7F) << 4) | (*bStr & 0x0F); bStr++;
 						}
-						else if (*aStr & 0x80) // последовательность три байта
+						else if (*bStr & 0x80) // последовательность три байта
 						{
-							*r++ = (static_cast<wchar_t>(aStr[2] & 0x3F) << 10)
-								| (static_cast<wchar_t>(aStr[1] & 0x3F) << 4)
-								| (*aStr & 0x0F); aStr += 2;
+							*r++ = (static_cast<wchar_t>(bStr[2] & 0x3F) << 10)
+								| (static_cast<wchar_t>(bStr[1] & 0x3F) << 4)
+								| (*bStr & 0x0F); bStr += 2;
 						}
 					}
 					else r++;
 				}
 				else
 				{
-					*r++ = *aStr;
+					*r++ = *bStr;
 				}
 			}
 
