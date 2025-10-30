@@ -1365,7 +1365,7 @@ namespace MZ
 
             __forceinline const TKey& GetKey(uint32_t index) const
             {
-                assert(index < core::Count());
+                mz_assert(index < core::Count());
 
                 return core::_entries[index].key;
             }
