@@ -147,7 +147,7 @@ namespace MZ
 
         static void Enumerate(const std::wstring& prefix, const std::wstring path, std::function<void(const std::wstring& path, const wchar_t* name, int64_t mt, int64_t raw_data_size)> fileAction, std::function<void(const std::wstring& path, const std::wstring& error)> errorAction)
         {
-            assert(path.size() != 0);
+            mz_assert(path.size() != 0);
 
             FileEnumerator fe(prefix);
 
@@ -221,14 +221,14 @@ namespace MZ
 
         std::wstring GetLastErrorW()
         {
-            assert(IsError());
+            mz_assert(IsError());
 
             return MZ::GetLastErrorW(lastError);
         }
 
         std::string GetLastErrorA()
         {
-            assert(IsError());
+            mz_assert(IsError());
 
             return MZ::GetLastErrorA(lastError);
         }
@@ -252,7 +252,7 @@ namespace MZ
 
         bool OpenExist(const wchar_t* path, const DWORD dwDesiredAccess, const DWORD dwShareMode, const DWORD flags)
         {
-            assert(IsOpen() != true);
+            mz_assert(IsOpen() != true);
 
             fileHandle = CreateFile(path, dwDesiredAccess, dwShareMode,
                 nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | flags, nullptr);
@@ -267,7 +267,7 @@ namespace MZ
 
         bool Create(const wchar_t* path, const DWORD dwDesiredAccess, const DWORD dwShareMode, const DWORD flags)
         {
-            assert(IsOpen() != true);
+            mz_assert(IsOpen() != true);
 
             fileHandle = CreateFile(path, dwDesiredAccess, dwShareMode,
                 nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | flags, nullptr);
@@ -282,13 +282,13 @@ namespace MZ
 
         DWORD ReadInternal(byte* buffer, DWORD nNumberOfBytesToRead)
         {
-            assert(IsOpen() == true);
+            mz_assert(IsOpen() == true);
 
             DWORD NumberOfBytesRead = 0;
 
             if (!::ReadFile(fileHandle, buffer, nNumberOfBytesToRead, &NumberOfBytesRead, nullptr))
             {
-                lastError = ::GetLastError(); assert(lastError != ERROR_INVALID_PARAMETER);
+                lastError = ::GetLastError(); mz_assert(lastError != ERROR_INVALID_PARAMETER);
             }
 
             return NumberOfBytesRead;
@@ -296,13 +296,13 @@ namespace MZ
 
         bool WriteInternal(const byte* buffer, DWORD nNumberOfBytesToWrite)
         {
-            assert(IsOpen() == true);
+            mz_assert(IsOpen() == true);
 
             DWORD NumberOfBytesWritten = 0;
 
             if (!::WriteFile(fileHandle, buffer, nNumberOfBytesToWrite, &NumberOfBytesWritten, nullptr))
             {
-                lastError = ::GetLastError(); assert(lastError != ERROR_INVALID_PARAMETER);
+                lastError = ::GetLastError(); mz_assert(lastError != ERROR_INVALID_PARAMETER);
                 
                 return false;
             }
@@ -312,7 +312,7 @@ namespace MZ
 
         int64_t Seek(int64_t dist, DWORD dwMoveMethod)
         {
-            assert(IsOpen() == true);
+            mz_assert(IsOpen() == true);
 
             LARGE_INTEGER li = { 0 }; li.QuadPart = dist;
 
@@ -320,7 +320,7 @@ namespace MZ
             {
                 lastError = ::GetLastError(); 
 
-                assert(lastError == 0, "%s", GetLastErrorA().c_str());
+                mz_assert(lastError == 0, "%s", GetLastErrorA().c_str());
             }
 
             return li.QuadPart;
@@ -330,7 +330,7 @@ namespace MZ
 
         size_t Size()
         {
-            assert(IsOpen() == true);
+            mz_assert(IsOpen() == true);
 
             LARGE_INTEGER size = { 0 };
 
@@ -338,7 +338,7 @@ namespace MZ
             {
                 lastError = ::GetLastError();
 
-                assert(false, "%s\n", GetLastErrorA().c_str());
+                mz_assert(false, "%s\n", GetLastErrorA().c_str());
             }
 
             return size.QuadPart;
@@ -425,7 +425,7 @@ namespace MZ
         {
             const auto length = Read((uint8_t*)data.data(), data.size() * sizeof(T), blockSize);
 
-            assert((length % sizeof(T)) == 0);
+            mz_assert((length % sizeof(T)) == 0);
 
             return length / sizeof(T);
         }
@@ -433,7 +433,7 @@ namespace MZ
         template <typename T>
         DWORD Read(const uint32_t index, const std::vector<T>& data, uint32_t blockSize = defaultBlockSize)
         {
-            assert(SeekBegin(index * sizeof(T)) == index * sizeof(T));
+            mz_assert(SeekBegin(index * sizeof(T)) == index * sizeof(T));
 
             return Read(data, blockSize);
         }
@@ -457,7 +457,7 @@ namespace MZ
 
         int64_t SeekBegin(int64_t dist)
         {
-            assert(dist >= 0);
+            mz_assert(dist >= 0);
 
             return Seek(dist, FILE_BEGIN);
         }
@@ -475,7 +475,7 @@ namespace MZ
 
         int64_t SeekBack(int64_t dist)
         {
-            assert(dist >= 0);
+            mz_assert(dist >= 0);
 
             return SeekCurrent(-dist);
         }
@@ -487,11 +487,11 @@ namespace MZ
         
         void OverlappedPosition(int64_t offset)
         {
-            assert(offset >= 0 && (offset % 4096) == 0);
+            mz_assert(offset >= 0 && (offset % 4096) == 0);
 
             if (lastError == ERROR_HANDLE_EOF) lastError = ERROR_SUCCESS;
 
-            assert(lastError == ERROR_SUCCESS);
+            mz_assert(lastError == ERROR_SUCCESS);
 
             OverlappedPositionInternal(offset);
         }
@@ -520,11 +520,11 @@ namespace MZ
       
         DWORD ReadOverlapped(std::vector<uint8_t>& buffer)
         {
-            assert(IsOpen() == true);
+            mz_assert(IsOpen() == true);
 
             if (lastError == ERROR_HANDLE_EOF) return 0;
 
-            assert(lastError == ERROR_SUCCESS || lastError == ERROR_IO_PENDING);
+            mz_assert(lastError == ERROR_SUCCESS || lastError == ERROR_IO_PENDING);
 
             DWORD NumberOfBytesRead = 0;
 
@@ -542,7 +542,7 @@ namespace MZ
                     
                     if (lastError != ERROR_IO_PENDING)
                     {
-                        assert(false, "%s\n", GetLastErrorA().c_str());
+                        mz_assert(false, "%s\n", GetLastErrorA().c_str());
                     }
                 }
                 else
@@ -563,7 +563,7 @@ namespace MZ
 
                 if (lastError == ERROR_HANDLE_EOF) return 0;
 
-                assert(false, "%s\n", GetLastErrorA().c_str());
+                mz_assert(false, "%s\n", GetLastErrorA().c_str());
             }
 
             internal_buffer.swap(buffer);
@@ -580,9 +580,13 @@ namespace MZ
 
                     if (lastError != ERROR_IO_PENDING && lastError != ERROR_HANDLE_EOF)
                     {
-                        assert(false, "%s\n", GetLastErrorA().c_str());
+                        mz_assert(false, "%s\n", GetLastErrorA().c_str());
                     }
                 }
+            }
+            else
+            {
+                lastError = ERROR_HANDLE_EOF;
             }
 
             return NumberOfBytesRead;
